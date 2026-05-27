@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'features/todo_kanban/data/datasources/task_remote_data_source.dart';
-import 'features/todo_kanban/data/models/task_model.dart';
 import 'features/todo_kanban/presentation/controllers/task_controller.dart';
 import 'features/todo_kanban/presentation/widgets/kanban_column.dart';
 
