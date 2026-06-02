@@ -6,6 +6,9 @@ class TaskModel extends Task {
     required super.title,
     required super.description,
     required super.status,
+    required super.priority,
+    required super.dueDate,
+    required super.labels,
     required super.createdAt,
   });
 
@@ -16,6 +19,9 @@ class TaskModel extends Task {
       title: json['title'] as String,
       description: json['description'] ?? '',
       status: json['status'] as String,
+      priority: json['priority'] as String? ?? 'medium',
+      dueDate: _parseDueDate(json['due_date']),
+      labels: _parseLabels(json['labels']),
       createdAt: DateTime.parse(json['created_at'] as String),
     );
   }
@@ -27,7 +33,20 @@ class TaskModel extends Task {
       'title': title,
       'description': description,
       'status': status,
+      'priority': priority,
+      'due_date': dueDate?.toIso8601String().split('T').first,
+      'labels': labels,
       'created_at': createdAt.toIso8601String(),
     };
+  }
+
+  static DateTime? _parseDueDate(dynamic value) {
+    if (value == null) return null;
+    return DateTime.parse(value as String);
+  }
+
+  static List<String> _parseLabels(dynamic value) {
+    if (value == null) return const [];
+    return (value as List).map((label) => label.toString()).toList();
   }
 }
