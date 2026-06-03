@@ -6,6 +6,7 @@ class Task {
   final String priority; // 'low', 'medium', 'high'
   final DateTime? dueDate;
   final List<String> labels;
+  final int position;
   final DateTime createdAt;
 
   Task({
@@ -16,6 +17,7 @@ class Task {
     required this.priority,
     required this.dueDate,
     required this.labels,
+    required this.position,
     required this.createdAt,
   });
 }

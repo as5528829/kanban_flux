@@ -5,7 +5,13 @@ import '../../../../core/app_snackbar.dart';
 import '../../domain/entities/task.dart';
 import '../controllers/task_controller.dart';
 
-Future<void> showTaskFormBottomSheet({
+class TaskFormDeleteResult {
+  final Task task;
+
+  const TaskFormDeleteResult(this.task);
+}
+
+Future<TaskFormDeleteResult?> showTaskFormBottomSheet({
   required BuildContext context,
   required WidgetRef ref,
   Task? task,
@@ -19,8 +25,10 @@ Future<void> showTaskFormBottomSheet({
   var selectedStatus = task?.status ?? initialStatus;
   var selectedPriority = task?.priority ?? 'medium';
   var selectedDueDate = task?.dueDate;
+  var isSubmitting = false;
+  var isDeleting = false;
 
-  return showModalBottomSheet<void>(
+  return showModalBottomSheet<TaskFormDeleteResult>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.white,
@@ -197,46 +205,47 @@ Future<void> showTaskFormBottomSheet({
                           ),
                           icon: const Icon(Icons.delete_outline, size: 20),
                           label: const Text('刪除'),
-                          onPressed: () async {
-                            final navigator = Navigator.of(context);
-                            final confirmDelete = await showDialog<bool>(
-                              context: context,
-                              builder: (context) => AlertDialog(
-                                title: const Text('確認刪除'),
-                                content: const Text('你確定要刪除這項任務嗎？此操作無法復原。'),
-                                actions: [
-                                  TextButton(
-                                    onPressed: () =>
-                                        Navigator.pop(context, false),
-                                    child: const Text('取消'),
-                                  ),
-                                  TextButton(
-                                    style: TextButton.styleFrom(
-                                      foregroundColor: Colors.red,
+                          onPressed: isDeleting || isSubmitting
+                              ? null
+                              : () async {
+                                  final sheetNavigator = Navigator.of(context);
+                                  final confirmDelete = await showDialog<bool>(
+                                    context: context,
+                                    builder: (context) => AlertDialog(
+                                      title: const Text('確認刪除'),
+                                      content: const Text(
+                                        '你確定要刪除這項任務嗎？此操作無法復原。',
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () =>
+                                              Navigator.pop(context, false),
+                                          child: const Text('取消'),
+                                        ),
+                                        TextButton(
+                                          style: TextButton.styleFrom(
+                                            foregroundColor: Colors.red,
+                                          ),
+                                          onPressed: () =>
+                                              Navigator.pop(context, true),
+                                          child: const Text('確認刪除'),
+                                        ),
+                                      ],
                                     ),
-                                    onPressed: () =>
-                                        Navigator.pop(context, true),
-                                    child: const Text('確認刪除'),
-                                  ),
-                                ],
-                              ),
-                            );
+                                  );
 
-                            if (confirmDelete == true) {
-                              final deleted = await ref
-                                  .read(taskControllerProvider.notifier)
-                                  .deleteTask(editingTask!.id);
-                              navigator.pop();
-                              showAppSnackBar(
-                                deleted ? '任務已刪除' : '刪除任務失敗',
-                                isError: !deleted,
-                              );
-                            }
-                          },
+                                  if (confirmDelete == true) {
+                                    sheetNavigator.pop(
+                                      TaskFormDeleteResult(editingTask!),
+                                    );
+                                  }
+                                },
                         ),
                       const Spacer(),
                       TextButton(
-                        onPressed: () => Navigator.pop(context),
+                        onPressed: isDeleting || isSubmitting
+                            ? null
+                            : () => Navigator.pop(context),
                         child: const Text('取消'),
                       ),
                       const SizedBox(width: 8),
@@ -245,57 +254,69 @@ Future<void> showTaskFormBottomSheet({
                           backgroundColor: const Color(0xFF0F172A),
                           foregroundColor: Colors.white,
                         ),
-                        onPressed: () async {
-                          final title = titleController.text.trim();
-                          final description = descController.text.trim();
-                          final labels = _parseLabels(labelsController.text);
-
-                          if (title.isEmpty) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('請輸入任務標題'),
-                                backgroundColor: Colors.orange,
-                              ),
-                            );
-                            return;
-                          }
-
-                          final navigator = Navigator.of(context);
-                          late final bool saved;
-                          if (isEditing) {
-                            saved = await ref
-                                .read(taskControllerProvider.notifier)
-                                .updateTaskContent(
-                                  editingTask!.id,
-                                  title,
-                                  description,
-                                  selectedStatus,
-                                  selectedPriority,
-                                  selectedDueDate,
-                                  labels,
+                        onPressed: isDeleting || isSubmitting
+                            ? null
+                            : () async {
+                                final title = titleController.text.trim();
+                                final description = descController.text.trim();
+                                final labels = _parseLabels(
+                                  labelsController.text,
                                 );
-                          } else {
-                            saved = await ref
-                                .read(taskControllerProvider.notifier)
-                                .addTask(
-                                  title,
-                                  description,
-                                  status: selectedStatus,
-                                  priority: selectedPriority,
-                                  dueDate: selectedDueDate,
-                                  labels: labels,
-                                );
-                          }
 
-                          navigator.pop();
-                          showAppSnackBar(
-                            saved
-                                ? (isEditing ? '任務已更新' : '任務已建立')
-                                : (isEditing ? '更新任務失敗' : '建立任務失敗'),
-                            isError: !saved,
-                          );
-                        },
-                        child: Text(isEditing ? '儲存修改' : '建立任務'),
+                                if (title.isEmpty) {
+                                  showAppFeedback(
+                                    '請輸入任務標題',
+                                    type: AppFeedbackType.warning,
+                                  );
+                                  return;
+                                }
+
+                                final navigator = Navigator.of(context);
+                                setSheetState(() => isSubmitting = true);
+                                late final bool saved;
+                                if (isEditing) {
+                                  saved = await ref
+                                      .read(taskControllerProvider.notifier)
+                                      .updateTaskContent(
+                                        editingTask!.id,
+                                        title,
+                                        description,
+                                        selectedStatus,
+                                        selectedPriority,
+                                        selectedDueDate,
+                                        labels,
+                                      );
+                                } else {
+                                  saved = await ref
+                                      .read(taskControllerProvider.notifier)
+                                      .addTask(
+                                        title,
+                                        description,
+                                        status: selectedStatus,
+                                        priority: selectedPriority,
+                                        dueDate: selectedDueDate,
+                                        labels: labels,
+                                      );
+                                }
+
+                                if (saved) {
+                                  navigator.pop();
+                                } else {
+                                  setSheetState(() => isSubmitting = false);
+                                }
+
+                                showAppSnackBar(
+                                  saved
+                                      ? (isEditing ? '任務已更新' : '任務已建立')
+                                      : (isEditing ? '更新任務失敗' : '建立任務失敗'),
+                                  isError: !saved,
+                                );
+                              },
+                        child: Text(
+                          isSubmitting
+                              ? '處理中...'
+                              : (isEditing ? '儲存修改' : '建立任務'),
+                        ),
                       ),
                     ],
                   ),

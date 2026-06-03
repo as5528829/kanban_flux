@@ -1,4 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../domain/entities/task.dart';
 import '../models/task_model.dart';
 
 class TaskRemoteDataSource {
@@ -14,6 +15,8 @@ class TaskRemoteDataSource {
           .from('tasks')
           .select()
           .eq('user_id', userId) // 💡 關鍵：過濾出 user_id 等於目前登入者 ID 的資料
+          .order('status', ascending: true)
+          .order('position', ascending: true)
           .order('created_at', ascending: false);
 
       return (response as List)
@@ -35,6 +38,7 @@ class TaskRemoteDataSource {
     String userId,
   ) async {
     try {
+      final nextPosition = await _nextPosition(userId, status);
       final response = await _supabaseClient
           .from('tasks')
           .insert({
@@ -44,6 +48,7 @@ class TaskRemoteDataSource {
             'priority': priority,
             'due_date': _formatDate(dueDate),
             'labels': labels,
+            'position': nextPosition,
             'user_id': userId, // 💡 關鍵：明確告訴後端這張卡片是誰建的
           })
           .select()
@@ -58,9 +63,18 @@ class TaskRemoteDataSource {
   /// 3. 更新雲端任務的狀態 (todo -> in_progress -> done)
   Future<TaskModel> updateTaskStatus(String id, String newStatus) async {
     try {
+      final currentTask = await _supabaseClient
+          .from('tasks')
+          .select('user_id')
+          .eq('id', id)
+          .single();
+      final nextPosition = await _nextPosition(
+        currentTask['user_id'] as String,
+        newStatus,
+      );
       final response = await _supabaseClient
           .from('tasks')
-          .update({'status': newStatus}) // 要更新的欄位與值
+          .update({'status': newStatus, 'position': nextPosition}) // 要更新的欄位與值
           .eq('id', id) // 條件：過濾出對應的 id
           .select()
           .single();
@@ -111,7 +125,62 @@ class TaskRemoteDataSource {
     }
   }
 
+  /// 6. 復原剛刪除的任務
+  Future<TaskModel> restoreTask(Task task, String userId) async {
+    try {
+      final response = await _supabaseClient
+          .from('tasks')
+          .insert({
+            'id': task.id,
+            'title': task.title,
+            'description': task.description,
+            'status': task.status,
+            'priority': task.priority,
+            'due_date': _formatDate(task.dueDate),
+            'labels': task.labels,
+            'position': task.position,
+            'user_id': userId,
+          })
+          .select()
+          .single();
+
+      return TaskModel.fromJson(response);
+    } catch (e) {
+      throw Exception('復原任務失敗: $e');
+    }
+  }
+
+  /// 7. 更新同一欄內的排序
+  Future<void> updateTaskPositions(List<String> orderedTaskIds) async {
+    try {
+      for (var index = 0; index < orderedTaskIds.length; index++) {
+        await _supabaseClient
+            .from('tasks')
+            .update({'position': index})
+            .eq('id', orderedTaskIds[index]);
+      }
+    } catch (e) {
+      throw Exception('更新任務排序失敗: $e');
+    }
+  }
+
   String? _formatDate(DateTime? date) {
     return date?.toIso8601String().split('T').first;
+  }
+
+  Future<int> _nextPosition(String userId, String status) async {
+    final response = await _supabaseClient
+        .from('tasks')
+        .select('position')
+        .eq('user_id', userId)
+        .eq('status', status)
+        .order('position', ascending: false)
+        .limit(1);
+
+    if (response.isNotEmpty) {
+      return (response.first['position'] as int? ?? -1) + 1;
+    }
+
+    return 0;
   }
 }

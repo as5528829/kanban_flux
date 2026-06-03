@@ -96,7 +96,7 @@ class _AuthPageState extends ConsumerState<AuthPage> {
 
     final emailError = validateEmail(email);
     if (emailError != null) {
-      showAppSnackBar(emailError, isError: true);
+      showAppFeedback(emailError, type: AppFeedbackType.warning);
       return;
     }
 

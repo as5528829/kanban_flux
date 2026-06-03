@@ -9,6 +9,7 @@ class TaskModel extends Task {
     required super.priority,
     required super.dueDate,
     required super.labels,
+    required super.position,
     required super.createdAt,
   });
 
@@ -22,6 +23,7 @@ class TaskModel extends Task {
       priority: json['priority'] as String? ?? 'medium',
       dueDate: _parseDueDate(json['due_date']),
       labels: _parseLabels(json['labels']),
+      position: json['position'] as int? ?? 0,
       createdAt: DateTime.parse(json['created_at'] as String),
     );
   }
@@ -36,6 +38,7 @@ class TaskModel extends Task {
       'priority': priority,
       'due_date': dueDate?.toIso8601String().split('T').first,
       'labels': labels,
+      'position': position,
       'created_at': createdAt.toIso8601String(),
     };
   }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/app_snackbar.dart';
 import '../../domain/entities/task.dart';
 import '../controllers/task_controller.dart';
 import 'task_form_bottom_sheet.dart';
@@ -26,8 +27,16 @@ class TaskCard extends ConsumerWidget {
         child: _buildCardContent(context, ref),
       ),
       child: InkWell(
-        onTap: () =>
-            showTaskFormBottomSheet(context: context, ref: ref, task: task),
+        onTap: () async {
+          final result = await showTaskFormBottomSheet(
+            context: context,
+            ref: ref,
+            task: task,
+          );
+          if (result != null) {
+            await _deleteTaskWithUndo(ref, result.task);
+          }
+        },
         borderRadius: BorderRadius.circular(12),
         child: _buildCardContent(context, ref),
       ),
@@ -82,9 +91,15 @@ class TaskCard extends ConsumerWidget {
                       color: Color(0xFF94A3B8),
                     ),
                     onSelected: (newStatus) async {
-                      await ref
+                      if (newStatus == task.status) return;
+
+                      final updated = await ref
                           .read(taskControllerProvider.notifier)
                           .updateStatus(task.id, newStatus);
+                      showAppSnackBar(
+                        updated ? '已移到${_statusLabel(newStatus)}' : '移動任務失敗',
+                        isError: !updated,
+                      );
                     },
                     itemBuilder: (context) => const [
                       PopupMenuItem(value: 'todo', child: Text('待辦事項')),
@@ -187,6 +202,42 @@ class TaskCard extends ConsumerWidget {
       ),
     );
   }
+}
+
+Future<void> _deleteTaskWithUndo(WidgetRef ref, Task task) async {
+  final taskController = ref.read(taskControllerProvider.notifier);
+  final deleted = await taskController.deleteTask(task.id);
+
+  showAppSnackBar(
+    deleted ? '任務已刪除' : '刪除任務失敗',
+    isError: !deleted,
+    actionLabel: deleted ? '復原' : null,
+    onAction: deleted ? () => _restoreDeletedTask(taskController, task) : null,
+  );
+}
+
+Future<void> _restoreDeletedTask(
+  TaskController taskController,
+  Task task,
+) async {
+  showAppFeedback(
+    '正在復原任務...',
+    type: AppFeedbackType.info,
+    duration: const Duration(seconds: 1),
+  );
+
+  final restored = await taskController.restoreDeletedTask(task);
+
+  showAppSnackBar(restored ? '任務已復原' : '復原任務失敗', isError: !restored);
+}
+
+String _statusLabel(String status) {
+  return switch (status) {
+    'todo' => '待辦',
+    'in_progress' => '進行中',
+    'done' => '已完成',
+    _ => '新欄位',
+  };
 }
 
 class _Badge extends StatelessWidget {

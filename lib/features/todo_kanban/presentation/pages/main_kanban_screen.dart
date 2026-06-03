@@ -28,6 +28,8 @@ class _MainKanbanScreenState extends ConsumerState<MainKanbanScreen> {
   @override
   Widget build(BuildContext context) {
     final tasksAsync = ref.watch(taskControllerProvider);
+    final syncState = ref.watch(taskSyncStatusProvider);
+    final effectiveSyncState = _effectiveSyncState(tasksAsync, syncState);
 
     return Scaffold(
       appBar: AppBar(
@@ -53,6 +55,10 @@ class _MainKanbanScreenState extends ConsumerState<MainKanbanScreen> {
           ),
         ),
         actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 4),
+            child: _SyncStatusPill(syncState: effectiveSyncState),
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: IconButton(
@@ -421,6 +427,142 @@ class _MainKanbanScreenState extends ConsumerState<MainKanbanScreen> {
       ),
     );
   }
+}
+
+TaskSyncState _effectiveSyncState(
+  AsyncValue<List<Task>> tasksAsync,
+  TaskSyncState syncState,
+) {
+  if (tasksAsync.isLoading) {
+    return TaskSyncState(
+      status: TaskSyncStatus.syncing,
+      lastSyncedAt: syncState.lastSyncedAt,
+    );
+  }
+
+  if (tasksAsync.hasError) {
+    return TaskSyncState(
+      status: TaskSyncStatus.failed,
+      lastSyncedAt: syncState.lastSyncedAt,
+    );
+  }
+
+  if (syncState.status == TaskSyncStatus.idle ||
+      syncState.status == TaskSyncStatus.syncing) {
+    return TaskSyncState(
+      status: TaskSyncStatus.synced,
+      lastSyncedAt: syncState.lastSyncedAt,
+    );
+  }
+
+  return syncState;
+}
+
+class _SyncStatusPill extends StatelessWidget {
+  final TaskSyncState syncState;
+
+  const _SyncStatusPill({required this.syncState});
+
+  @override
+  Widget build(BuildContext context) {
+    final meta = _syncMeta(syncState);
+
+    return Tooltip(
+      message: meta.tooltip,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        constraints: const BoxConstraints(maxWidth: 138),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        decoration: BoxDecoration(
+          color: meta.background,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: meta.border),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (syncState.status == TaskSyncStatus.syncing)
+              SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: meta.foreground,
+                ),
+              )
+            else
+              Icon(meta.icon, size: 15, color: meta.foreground),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                meta.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: meta.foreground,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+({
+  String label,
+  String tooltip,
+  IconData icon,
+  Color foreground,
+  Color background,
+  Color border,
+})
+_syncMeta(TaskSyncState syncState) {
+  return switch (syncState.status) {
+    TaskSyncStatus.syncing => (
+      label: '同步中',
+      tooltip: '正在同步到 Supabase',
+      icon: Icons.sync_rounded,
+      foreground: const Color(0xFF2563EB),
+      background: const Color(0xFFDBEAFE),
+      border: const Color(0xFFBFDBFE),
+    ),
+    TaskSyncStatus.synced => (
+      label: _syncedLabel(syncState.lastSyncedAt),
+      tooltip: '資料已同步到 Supabase',
+      icon: Icons.cloud_done_outlined,
+      foreground: const Color(0xFF047857),
+      background: const Color(0xFFD1FAE5),
+      border: const Color(0xFFA7F3D0),
+    ),
+    TaskSyncStatus.failed => (
+      label: '同步失敗',
+      tooltip: '同步失敗，請稍後重試',
+      icon: Icons.cloud_off_outlined,
+      foreground: const Color(0xFFB91C1C),
+      background: const Color(0xFFFEE2E2),
+      border: const Color(0xFFFECACA),
+    ),
+    TaskSyncStatus.idle => (
+      label: '尚未同步',
+      tooltip: '尚未開始同步',
+      icon: Icons.cloud_outlined,
+      foreground: const Color(0xFF64748B),
+      background: const Color(0xFFF8FAFC),
+      border: const Color(0xFFE2E8F0),
+    ),
+  };
+}
+
+String _syncedLabel(DateTime? lastSyncedAt) {
+  if (lastSyncedAt == null) return '已同步';
+
+  final hour = lastSyncedAt.hour.toString().padLeft(2, '0');
+  final minute = lastSyncedAt.minute.toString().padLeft(2, '0');
+  return '已同步 $hour:$minute';
 }
 
 enum _TaskFilter {

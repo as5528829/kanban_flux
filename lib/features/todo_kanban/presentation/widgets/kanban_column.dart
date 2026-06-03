@@ -24,7 +24,12 @@ class KanbanColumn extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     // 💡 加上 WidgetRef ref
-    final filteredTasks = tasks.where((task) => task.status == status).toList();
+    final filteredTasks = tasks.where((task) => task.status == status).toList()
+      ..sort((a, b) {
+        final positionCompare = a.position.compareTo(b.position);
+        if (positionCompare != 0) return positionCompare;
+        return b.createdAt.compareTo(a.createdAt);
+      });
 
     // 💡 核心升級：將原本的 Container 包裹進 DragTarget 中
     return DragTarget<Task>(
@@ -38,7 +43,7 @@ class KanbanColumn extends ConsumerWidget {
         final moved = await ref
             .read(taskControllerProvider.notifier)
             .updateStatus(droppedTask.id, status);
-        showAppSnackBar(moved ? '已移到$title' : '移動任務失敗', isError: !moved);
+        showAppSnackBar(moved ? '已移到$title' : '移動任務失敗，已還原', isError: !moved);
       },
 
       // 3. 畫面渲染：isOver 代表目前有沒有卡片「正懸浮在這一欄上方」，可以用來做高階的視覺特效！
@@ -171,7 +176,26 @@ class KanbanColumn extends ConsumerWidget {
                         padding: const EdgeInsets.only(bottom: 16),
                         itemCount: filteredTasks.length,
                         itemBuilder: (context, index) {
-                          return TaskCard(task: filteredTasks[index]);
+                          final task = filteredTasks[index];
+
+                          return _SortableTaskItem(
+                            key: ValueKey(task.id),
+                            task: task,
+                            canMoveUp: index > 0,
+                            canMoveDown: index < filteredTasks.length - 1,
+                            onMoveUp: () async {
+                              final reorderedTasks = [...filteredTasks];
+                              final movedTask = reorderedTasks.removeAt(index);
+                              reorderedTasks.insert(index - 1, movedTask);
+                              await _saveOrder(ref, reorderedTasks);
+                            },
+                            onMoveDown: () async {
+                              final reorderedTasks = [...filteredTasks];
+                              final movedTask = reorderedTasks.removeAt(index);
+                              reorderedTasks.insert(index + 1, movedTask);
+                              await _saveOrder(ref, reorderedTasks);
+                            },
+                          );
                         },
                       ),
               ),
@@ -179,6 +203,98 @@ class KanbanColumn extends ConsumerWidget {
           ),
         );
       },
+    );
+  }
+
+  Future<void> _saveOrder(WidgetRef ref, List<Task> reorderedTasks) async {
+    final reordered = await ref
+        .read(taskControllerProvider.notifier)
+        .reorderTasks(reorderedTasks);
+
+    showAppSnackBar(
+      reordered ? '任務排序已更新' : '更新任務排序失敗，已還原',
+      isError: !reordered,
+    );
+  }
+}
+
+class _SortableTaskItem extends StatelessWidget {
+  final Task task;
+  final bool canMoveUp;
+  final bool canMoveDown;
+  final Future<void> Function() onMoveUp;
+  final Future<void> Function() onMoveDown;
+
+  const _SortableTaskItem({
+    super.key,
+    required this.task,
+    required this.canMoveUp,
+    required this.canMoveDown,
+    required this.onMoveUp,
+    required this.onMoveDown,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        TaskCard(task: task),
+        Positioned(
+          top: 10,
+          right: 52,
+          child: Row(
+            children: [
+              _SortButton(
+                icon: Icons.keyboard_arrow_up_rounded,
+                tooltip: '上移',
+                enabled: canMoveUp,
+                onPressed: onMoveUp,
+              ),
+              const SizedBox(width: 4),
+              _SortButton(
+                icon: Icons.keyboard_arrow_down_rounded,
+                tooltip: '下移',
+                enabled: canMoveDown,
+                onPressed: onMoveDown,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SortButton extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final bool enabled;
+  final Future<void> Function() onPressed;
+
+  const _SortButton({
+    required this.icon,
+    required this.tooltip,
+    required this.enabled,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: tooltip,
+      iconSize: 18,
+      constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+      padding: EdgeInsets.zero,
+      style: IconButton.styleFrom(
+        backgroundColor: Colors.white.withValues(alpha: 0.94),
+        disabledBackgroundColor: Colors.white.withValues(alpha: 0.55),
+        side: const BorderSide(color: Color(0xFFE2E8F0)),
+      ),
+      onPressed: enabled ? onPressed : null,
+      icon: Icon(
+        icon,
+        color: enabled ? const Color(0xFF64748B) : const Color(0xFFCBD5E1),
+      ),
     );
   }
 }
