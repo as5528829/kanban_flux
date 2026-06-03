@@ -13,7 +13,7 @@ void showAppSnackBar(String message, {bool isError = false}) {
         content: Text(message),
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 3),
-        margin: const EdgeInsets.all(16),
+        width: 420,
         elevation: 8,
         backgroundColor: isError ? Colors.red : const Color(0xFF0F172A),
       ),

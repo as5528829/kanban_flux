@@ -1,5 +1,6 @@
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../../core/app_config.dart';
 import '../../data/datasources/auth_remote_data_source.dart';
 
 part 'auth_controller.g.dart';
@@ -31,6 +32,14 @@ class AuthController extends _$AuthController {
   /// 執行註冊
   Future<void> register(String email, String password) async {
     await _authDataSource.signUpWithEmail(email: email, password: password);
+  }
+
+  /// 寄送忘記密碼重設信
+  Future<void> sendPasswordResetEmail(String email) async {
+    await _authDataSource.sendPasswordResetEmail(
+      email: email,
+      redirectTo: AppConfig.passwordResetRedirectUrl,
+    );
   }
 
   /// 執行登出

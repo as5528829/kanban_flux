@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'core/app_config.dart';
 import 'core/app_snackbar.dart';
 import 'features/auth/presentation/controllers/auth_controller.dart';
 import 'features/auth/presentation/pages/auth_page.dart';
@@ -11,9 +12,8 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await Supabase.initialize(
-    url: 'https://uqhydfuztyouyvxfyazy.supabase.co',
-    anonKey:
-        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVxaHlkZnV6dHlvdXl2eGZ5YXp5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk4NTYzNTYsImV4cCI6MjA5NTQzMjM1Nn0.ZUjwYOM0yDktDNxWBmtpt7NVFy8dO9t-XUR5tHNWMqo',
+    url: AppConfig.supabaseUrl,
+    anonKey: AppConfig.supabaseAnonKey,
   );
 
   runApp(const ProviderScope(child: MyApp()));
