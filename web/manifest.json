@@ -6,7 +6,6 @@
     "background_color": "#F1F5F9",
     "theme_color": "#0F172A",
     "description": "A focused kanban board for personal task flow.",
-    "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
         {

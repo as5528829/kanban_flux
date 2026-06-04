@@ -490,8 +490,7 @@ TaskSyncState _effectiveSyncState(
     );
   }
 
-  if (syncState.status == TaskSyncStatus.idle ||
-      syncState.status == TaskSyncStatus.syncing) {
+  if (syncState.status == TaskSyncStatus.idle) {
     return TaskSyncState(
       status: TaskSyncStatus.synced,
       lastSyncedAt: syncState.lastSyncedAt,

@@ -1,6 +1,6 @@
-# kanban_flux
+# Kanban Flux
 
-A new Flutter project.
+A focused kanban board for personal task flow.
 
 ## Getting Started
 

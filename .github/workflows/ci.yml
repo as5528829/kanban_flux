@@ -42,3 +42,6 @@ jobs:
       # 7. ✨ 外商核心：自動執行單元測試（雖然我們還沒寫，但架構先擺好！）
       - name: Run unit tests
         run: flutter test
+
+      - name: Verify Android app bundle build
+        run: flutter build appbundle

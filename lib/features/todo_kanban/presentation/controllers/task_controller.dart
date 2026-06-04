@@ -66,7 +66,7 @@ class TaskController extends _$TaskController {
   static const _syncTimeout = Duration(seconds: 15);
   static const _realtimeDebounceDuration = Duration(milliseconds: 500);
 
-  final TaskRemoteDataSource _dataSource = TaskRemoteDataSource(
+  late final TaskRemoteDataSource _dataSource = TaskRemoteDataSource(
     Supabase.instance.client,
   );
   RealtimeChannel? _realtimeChannel;

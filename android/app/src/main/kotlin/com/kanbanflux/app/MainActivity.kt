@@ -1,4 +1,4 @@
-package com.example.kanban_flux
+package com.kanbanflux.app
 
 import io.flutter.embedding.android.FlutterActivity
 

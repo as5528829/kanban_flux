@@ -24,6 +24,19 @@ flutter run -d web-server \
 
 ## Production Build
 
+The Android build uses `android/key.properties` when it exists. Without it,
+local release builds fall back to the debug key for build verification only.
+Never upload a debug-signed bundle to Google Play.
+
+Create an upload keystore:
+
+```bash
+keytool -genkey -v -keystore android/upload-keystore.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload
+```
+
+Then copy `android/key.properties.example` to `android/key.properties` and
+replace its placeholder values.
+
 Android app bundle:
 
 ```bash
@@ -51,4 +64,7 @@ flutter build web \
 - Confirm each RLS policy only allows authenticated users to access rows where `auth.uid() = user_id`.
 - Add the password reset redirect URL to Supabase Auth URL configuration.
 - Add app icon and splash screen.
+- Confirm `android/key.properties` points to the production upload keystore.
+- Confirm the Android application ID and iOS bundle ID are `com.kanbanflux.app`.
+- Increment the version and build number in `pubspec.yaml`.
 - Prepare privacy policy, screenshots, and reviewer test account.
