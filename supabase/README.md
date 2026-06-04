@@ -2,6 +2,8 @@
 
 Run `supabase/migrations/001_init_tasks.sql` in the Supabase SQL Editor before testing or deploying Kanban Flux.
 
+Then run `supabase/migrations/002_enable_tasks_realtime.sql` to enable secure private Broadcast updates across tabs and devices.
+
 This migration creates or updates the `public.tasks` table with the fields used by the app:
 
 - `priority`

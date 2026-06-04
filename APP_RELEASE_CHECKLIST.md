@@ -46,6 +46,7 @@ flutter build web \
 
 - Back up the production Supabase project.
 - Run `supabase/migrations/001_init_tasks.sql` in the production Supabase SQL Editor.
+- Run `supabase/migrations/002_enable_tasks_realtime.sql` in the production Supabase SQL Editor.
 - Confirm Supabase RLS is enabled on `public.tasks`.
 - Confirm each RLS policy only allows authenticated users to access rows where `auth.uid() = user_id`.
 - Add the password reset redirect URL to Supabase Auth URL configuration.

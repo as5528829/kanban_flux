@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../domain/entities/task.dart';
+import '../../domain/errors/task_failure.dart';
 import '../models/task_model.dart';
 
 class TaskRemoteDataSource {
@@ -23,7 +24,7 @@ class TaskRemoteDataSource {
           .map((taskJson) => TaskModel.fromJson(taskJson))
           .toList();
     } catch (e) {
-      throw Exception('無法取得您的專屬任務資料: $e');
+      throw friendlyTaskFailure(e);
     }
   }
 
@@ -56,7 +57,7 @@ class TaskRemoteDataSource {
 
       return TaskModel.fromJson(response);
     } catch (e) {
-      throw Exception('新增任務失敗: $e');
+      throw friendlyTaskFailure(e);
     }
   }
 
@@ -81,7 +82,7 @@ class TaskRemoteDataSource {
 
       return TaskModel.fromJson(response);
     } catch (e) {
-      throw Exception('雲端更新任務狀態失敗: $e');
+      throw friendlyTaskFailure(e);
     }
   }
 
@@ -112,7 +113,7 @@ class TaskRemoteDataSource {
 
       return TaskModel.fromJson(response);
     } catch (e) {
-      throw Exception('更新任務內容失敗: $e');
+      throw friendlyTaskFailure(e);
     }
   }
 
@@ -121,7 +122,7 @@ class TaskRemoteDataSource {
     try {
       await _supabaseClient.from('tasks').delete().eq('id', id);
     } catch (e) {
-      throw Exception('刪除任務失敗: $e');
+      throw friendlyTaskFailure(e);
     }
   }
 
@@ -146,7 +147,7 @@ class TaskRemoteDataSource {
 
       return TaskModel.fromJson(response);
     } catch (e) {
-      throw Exception('復原任務失敗: $e');
+      throw friendlyTaskFailure(e);
     }
   }
 
@@ -160,7 +161,7 @@ class TaskRemoteDataSource {
             .eq('id', orderedTaskIds[index]);
       }
     } catch (e) {
-      throw Exception('更新任務排序失敗: $e');
+      throw friendlyTaskFailure(e);
     }
   }
 

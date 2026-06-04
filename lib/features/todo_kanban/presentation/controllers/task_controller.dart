@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../auth/presentation/controllers/auth_controller.dart'; // 💡 引入 auth_controller
 import '../../data/datasources/task_remote_data_source.dart';
 import '../../domain/entities/task.dart';
+import '../../domain/errors/task_failure.dart';
 
 part 'task_controller.g.dart';
 
@@ -12,32 +15,66 @@ final taskSyncStatusProvider =
 
 enum TaskSyncStatus { idle, syncing, synced, failed }
 
+enum TaskSyncSource { local, manual, realtime }
+
 class TaskSyncState {
   final TaskSyncStatus status;
   final DateTime? lastSyncedAt;
+  final TaskFailure? failure;
+  final TaskSyncSource? source;
 
-  const TaskSyncState({required this.status, this.lastSyncedAt});
+  const TaskSyncState({
+    required this.status,
+    this.lastSyncedAt,
+    this.failure,
+    this.source,
+  });
 }
 
 class TaskSyncController extends Notifier<TaskSyncState> {
   @override
   TaskSyncState build() => const TaskSyncState(status: TaskSyncStatus.idle);
 
-  void setStatus(TaskSyncStatus status) {
+  void setSyncing() {
     state = TaskSyncState(
-      status: status,
-      lastSyncedAt: status == TaskSyncStatus.synced
-          ? DateTime.now()
-          : state.lastSyncedAt,
+      status: TaskSyncStatus.syncing,
+      lastSyncedAt: state.lastSyncedAt,
+      source: state.source,
+    );
+  }
+
+  void setSynced({TaskSyncSource source = TaskSyncSource.local}) {
+    state = TaskSyncState(
+      status: TaskSyncStatus.synced,
+      lastSyncedAt: DateTime.now(),
+      source: source,
+    );
+  }
+
+  void setFailed(TaskFailure failure) {
+    state = TaskSyncState(
+      status: TaskSyncStatus.failed,
+      lastSyncedAt: state.lastSyncedAt,
+      failure: failure,
+      source: state.source,
     );
   }
 }
 
 @riverpod
 class TaskController extends _$TaskController {
+  static const _syncTimeout = Duration(seconds: 15);
+  static const _realtimeDebounceDuration = Duration(milliseconds: 500);
+
   final TaskRemoteDataSource _dataSource = TaskRemoteDataSource(
     Supabase.instance.client,
   );
+  RealtimeChannel? _realtimeChannel;
+  Timer? _realtimeDebounce;
+  String? _subscribedUserId;
+  bool _isLocalMutationInProgress = false;
+  bool _isDisposed = false;
+  bool _disposeRegistered = false;
 
   @override
   FutureOr<List<Task>> build() async {
@@ -46,10 +83,19 @@ class TaskController extends _$TaskController {
     final user = ref.watch(authControllerProvider);
 
     // 如果沒登入，看板直接回傳空列表（防呆）
-    if (user == null) return [];
+    if (user == null) {
+      _unsubscribeRealtime();
+      return [];
+    }
 
     // 有登入，就只撈這個使用者的 tasks
-    return _dataSource.getTasks(user.id);
+    try {
+      final tasks = await _dataSource.getTasks(user.id).timeout(_syncTimeout);
+      if (ref.mounted) await _subscribeToRealtime(user.id);
+      return tasks;
+    } catch (error) {
+      throw friendlyTaskFailure(error);
+    }
   }
 
   /// 新增任務
@@ -64,23 +110,20 @@ class TaskController extends _$TaskController {
     final user = ref.read(authControllerProvider);
     if (user == null) return false;
 
-    try {
-      _setSyncStatus(TaskSyncStatus.syncing);
-      await _dataSource.createTask(
-        title,
-        description,
-        status,
-        priority,
-        dueDate,
-        labels,
-        user.id,
-      );
+    return _runMutation(() async {
+      await _dataSource
+          .createTask(
+            title,
+            description,
+            status,
+            priority,
+            dueDate,
+            labels,
+            user.id,
+          )
+          .timeout(_syncTimeout);
       await _refreshTasks(user.id);
-      return true;
-    } catch (_) {
-      _setSyncStatus(TaskSyncStatus.failed);
-      return false;
-    }
+    });
   }
 
   /// 變更狀態（保持不變，因為 RLS 會自動幫我們用 user.id 在後端校驗）
@@ -88,15 +131,10 @@ class TaskController extends _$TaskController {
     final user = ref.read(authControllerProvider);
     if (user == null) return false;
 
-    try {
-      _setSyncStatus(TaskSyncStatus.syncing);
-      await _dataSource.updateTaskStatus(id, newStatus);
+    return _runMutation(() async {
+      await _dataSource.updateTaskStatus(id, newStatus).timeout(_syncTimeout);
       await _refreshTasks(user.id);
-      return true;
-    } catch (_) {
-      _setSyncStatus(TaskSyncStatus.failed);
-      return false;
-    }
+    });
   }
 
   // 💡 增加一個專門用來編輯任務內容的方法
@@ -112,23 +150,20 @@ class TaskController extends _$TaskController {
     final user = ref.read(authControllerProvider);
     if (user == null) return false;
 
-    try {
-      _setSyncStatus(TaskSyncStatus.syncing);
-      await _dataSource.updateTaskContent(
-        id,
-        newTitle,
-        newDescription,
-        status,
-        priority,
-        dueDate,
-        labels,
-      );
+    return _runMutation(() async {
+      await _dataSource
+          .updateTaskContent(
+            id,
+            newTitle,
+            newDescription,
+            status,
+            priority,
+            dueDate,
+            labels,
+          )
+          .timeout(_syncTimeout);
       await _refreshTasks(user.id);
-      return true;
-    } catch (_) {
-      _setSyncStatus(TaskSyncStatus.failed);
-      return false;
-    }
+    });
   }
 
   // 💡 增加一個專門用來刪除任務的方法
@@ -136,30 +171,20 @@ class TaskController extends _$TaskController {
     final user = ref.read(authControllerProvider);
     if (user == null) return false;
 
-    try {
-      _setSyncStatus(TaskSyncStatus.syncing);
-      await _dataSource.deleteTask(id);
+    return _runMutation(() async {
+      await _dataSource.deleteTask(id).timeout(_syncTimeout);
       await _refreshTasks(user.id);
-      return true;
-    } catch (_) {
-      _setSyncStatus(TaskSyncStatus.failed);
-      return false;
-    }
+    });
   }
 
   Future<bool> restoreDeletedTask(Task task) async {
     final user = ref.read(authControllerProvider);
     if (user == null) return false;
 
-    try {
-      _setSyncStatus(TaskSyncStatus.syncing);
-      await _dataSource.restoreTask(task, user.id);
+    return _runMutation(() async {
+      await _dataSource.restoreTask(task, user.id).timeout(_syncTimeout);
       await _refreshTasks(user.id);
-      return true;
-    } catch (_) {
-      _setSyncStatus(TaskSyncStatus.failed);
-      return false;
-    }
+    });
   }
 
   Future<bool> reorderTasks(List<Task> orderedTasks) async {
@@ -181,28 +206,166 @@ class TaskController extends _$TaskController {
       ...repositionedTasks,
     ];
     state = AsyncData(nextTasks);
-    _setSyncStatus(TaskSyncStatus.syncing);
+    _isLocalMutationInProgress = true;
+    _setSyncing();
 
     try {
-      await _dataSource.updateTaskPositions(
-        orderedTasks.map((task) => task.id).toList(),
-      );
+      await _dataSource
+          .updateTaskPositions(orderedTasks.map((task) => task.id).toList())
+          .timeout(_syncTimeout);
       await _refreshTasks(user.id);
       return true;
-    } catch (_) {
+    } catch (error) {
       state = AsyncData(previousTasks);
-      _setSyncStatus(TaskSyncStatus.failed);
+      _setFailed(error);
+      return false;
+    } finally {
+      _isLocalMutationInProgress = false;
+    }
+  }
+
+  Future<bool> refreshTasks() async {
+    final user = ref.read(authControllerProvider);
+    if (user == null) {
+      _setFailed(
+        const TaskFailure(
+          type: TaskFailureType.authExpired,
+          message: '登入狀態已過期，請重新登入。',
+        ),
+      );
+      return false;
+    }
+
+    try {
+      _setSyncing();
+      await _refreshTasks(user.id, source: TaskSyncSource.manual);
+      return true;
+    } catch (error) {
+      _setFailed(error);
       return false;
     }
   }
 
-  Future<void> _refreshTasks(String userId) async {
-    state = AsyncData(await _dataSource.getTasks(userId));
-    _setSyncStatus(TaskSyncStatus.synced);
+  Future<bool> _runMutation(Future<void> Function() mutation) async {
+    _isLocalMutationInProgress = true;
+    try {
+      _setSyncing();
+      await mutation();
+      return true;
+    } catch (error) {
+      _setFailed(error);
+      return false;
+    } finally {
+      _isLocalMutationInProgress = false;
+    }
   }
 
-  void _setSyncStatus(TaskSyncStatus status) {
-    ref.read(taskSyncStatusProvider.notifier).setStatus(status);
+  Future<void> _refreshTasks(
+    String userId, {
+    TaskSyncSource source = TaskSyncSource.local,
+  }) async {
+    state = AsyncData(await _dataSource.getTasks(userId).timeout(_syncTimeout));
+    ref.read(taskSyncStatusProvider.notifier).setSynced(source: source);
+  }
+
+  Future<void> _subscribeToRealtime(String userId) async {
+    if (_subscribedUserId == userId && _realtimeChannel != null) return;
+
+    _registerDispose();
+    final client = Supabase.instance.client;
+    await client.realtime.setAuth(client.auth.currentSession?.accessToken);
+    if (!ref.mounted) return;
+
+    final oldChannel = _realtimeChannel;
+    if (oldChannel != null) {
+      unawaited(client.removeChannel(oldChannel));
+    }
+
+    _subscribedUserId = userId;
+    _realtimeChannel = client
+        .channel(
+          'tasks:$userId',
+          opts: const RealtimeChannelConfig(private: true),
+        )
+        .onBroadcast(
+          event: '*',
+          callback: (_) => _scheduleRealtimeRefresh(userId),
+        )
+        .subscribe((status, error) {
+          if (_isDisposed || _subscribedUserId != userId) return;
+          if (status == RealtimeSubscribeStatus.channelError) {
+            _setFailed(
+              TaskFailure(
+                type: TaskFailureType.schema,
+                message: '即時同步連線失敗，請確認已執行 Realtime migration。',
+                cause: error,
+              ),
+            );
+          } else if (status == RealtimeSubscribeStatus.timedOut) {
+            _setFailed(
+              TaskFailure(
+                type: TaskFailureType.timeout,
+                message: '即時同步連線逾時，請稍後重新整理。',
+                cause: error,
+              ),
+            );
+          }
+        });
+  }
+
+  void _unsubscribeRealtime() {
+    _realtimeDebounce?.cancel();
+    _subscribedUserId = null;
+    final channel = _realtimeChannel;
+    _realtimeChannel = null;
+    if (channel != null) {
+      unawaited(Supabase.instance.client.removeChannel(channel));
+    }
+  }
+
+  void _scheduleRealtimeRefresh(String userId) {
+    if (_isDisposed || _isLocalMutationInProgress) return;
+
+    _realtimeDebounce?.cancel();
+    _realtimeDebounce = Timer(_realtimeDebounceDuration, () {
+      if (_isDisposed || _isLocalMutationInProgress) return;
+      unawaited(_refreshFromRealtime(userId));
+    });
+  }
+
+  Future<void> _refreshFromRealtime(String userId) async {
+    final currentUser = ref.read(authControllerProvider);
+    if (_isDisposed || currentUser?.id != userId) return;
+
+    try {
+      final tasks = await _dataSource.getTasks(userId).timeout(_syncTimeout);
+      if (_isDisposed) return;
+      state = AsyncData(tasks);
+      ref
+          .read(taskSyncStatusProvider.notifier)
+          .setSynced(source: TaskSyncSource.realtime);
+    } catch (error) {
+      if (!_isDisposed) _setFailed(error);
+    }
+  }
+
+  void _registerDispose() {
+    if (_disposeRegistered) return;
+    _disposeRegistered = true;
+    ref.onDispose(() {
+      _isDisposed = true;
+      _unsubscribeRealtime();
+    });
+  }
+
+  void _setSyncing() {
+    ref.read(taskSyncStatusProvider.notifier).setSyncing();
+  }
+
+  void _setFailed(Object error) {
+    ref
+        .read(taskSyncStatusProvider.notifier)
+        .setFailed(friendlyTaskFailure(error));
   }
 
   Task _copyTaskWithPosition(Task task, int position) {

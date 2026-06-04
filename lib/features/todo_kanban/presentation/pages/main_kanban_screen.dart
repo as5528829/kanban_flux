@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/app_snackbar.dart';
 import '../../../auth/presentation/controllers/auth_controller.dart';
 import '../../domain/entities/task.dart';
+import '../../domain/errors/task_failure.dart';
 import '../controllers/task_controller.dart';
 import '../widgets/kanban_column.dart';
 import '../widgets/task_form_bottom_sheet.dart';
@@ -57,7 +59,31 @@ class _MainKanbanScreenState extends ConsumerState<MainKanbanScreen> {
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 4),
-            child: _SyncStatusPill(syncState: effectiveSyncState),
+            child: _SyncStatusPill(
+              syncState: effectiveSyncState,
+              onRetry: effectiveSyncState.status == TaskSyncStatus.failed
+                  ? _refreshTasks
+                  : null,
+            ),
+          ),
+          IconButton(
+            tooltip: effectiveSyncState.status == TaskSyncStatus.syncing
+                ? '同步中'
+                : '重新整理',
+            onPressed: effectiveSyncState.status == TaskSyncStatus.syncing
+                ? null
+                : _refreshTasks,
+            icon: effectiveSyncState.status == TaskSyncStatus.syncing
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(
+                    Icons.refresh_rounded,
+                    color: Color(0xFF64748B),
+                    size: 21,
+                  ),
           ),
           Padding(
             padding: const EdgeInsets.only(right: 12),
@@ -306,6 +332,18 @@ class _MainKanbanScreenState extends ConsumerState<MainKanbanScreen> {
     );
   }
 
+  Future<void> _refreshTasks() async {
+    final refreshed = await ref
+        .read(taskControllerProvider.notifier)
+        .refreshTasks();
+    final syncState = ref.read(taskSyncStatusProvider);
+
+    showAppSnackBar(
+      refreshed ? '任務已重新整理' : (syncState.failure?.message ?? '重新整理失敗，請稍後再試。'),
+      isError: !refreshed,
+    );
+  }
+
   Widget _buildEmptyBoard() {
     return Center(
       child: Padding(
@@ -354,6 +392,8 @@ class _MainKanbanScreenState extends ConsumerState<MainKanbanScreen> {
   }
 
   Widget _buildErrorState(Object error) {
+    final failure = friendlyTaskFailure(error);
+
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -376,13 +416,13 @@ class _MainKanbanScreenState extends ConsumerState<MainKanbanScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              error.toString(),
+              failure.message,
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 13, color: Color(0xFF64748B)),
             ),
             const SizedBox(height: 18),
             OutlinedButton.icon(
-              onPressed: () => ref.invalidate(taskControllerProvider),
+              onPressed: _refreshTasks,
               icon: const Icon(Icons.refresh_rounded),
               label: const Text('重試'),
             ),
@@ -437,6 +477,7 @@ TaskSyncState _effectiveSyncState(
     return TaskSyncState(
       status: TaskSyncStatus.syncing,
       lastSyncedAt: syncState.lastSyncedAt,
+      source: syncState.source,
     );
   }
 
@@ -444,6 +485,8 @@ TaskSyncState _effectiveSyncState(
     return TaskSyncState(
       status: TaskSyncStatus.failed,
       lastSyncedAt: syncState.lastSyncedAt,
+      failure: friendlyTaskFailure(tasksAsync.error!),
+      source: syncState.source,
     );
   }
 
@@ -452,6 +495,7 @@ TaskSyncState _effectiveSyncState(
     return TaskSyncState(
       status: TaskSyncStatus.synced,
       lastSyncedAt: syncState.lastSyncedAt,
+      source: syncState.source,
     );
   }
 
@@ -460,8 +504,9 @@ TaskSyncState _effectiveSyncState(
 
 class _SyncStatusPill extends StatelessWidget {
   final TaskSyncState syncState;
+  final VoidCallback? onRetry;
 
-  const _SyncStatusPill({required this.syncState});
+  const _SyncStatusPill({required this.syncState, this.onRetry});
 
   @override
   Widget build(BuildContext context) {
@@ -469,43 +514,47 @@ class _SyncStatusPill extends StatelessWidget {
 
     return Tooltip(
       message: meta.tooltip,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        constraints: const BoxConstraints(maxWidth: 138),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-        decoration: BoxDecoration(
-          color: meta.background,
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: meta.border),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (syncState.status == TaskSyncStatus.syncing)
-              SizedBox(
-                width: 14,
-                height: 14,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: meta.foreground,
-                ),
-              )
-            else
-              Icon(meta.icon, size: 15, color: meta.foreground),
-            const SizedBox(width: 6),
-            Flexible(
-              child: Text(
-                meta.label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w800,
-                  color: meta.foreground,
+      child: InkWell(
+        onTap: onRetry,
+        borderRadius: BorderRadius.circular(999),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          constraints: const BoxConstraints(maxWidth: 138),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+          decoration: BoxDecoration(
+            color: meta.background,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: meta.border),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (syncState.status == TaskSyncStatus.syncing)
+                SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: meta.foreground,
+                  ),
+                )
+              else
+                Icon(meta.icon, size: 15, color: meta.foreground),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  meta.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    color: meta.foreground,
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -531,8 +580,10 @@ _syncMeta(TaskSyncState syncState) {
       border: const Color(0xFFBFDBFE),
     ),
     TaskSyncStatus.synced => (
-      label: _syncedLabel(syncState.lastSyncedAt),
-      tooltip: '資料已同步到 Supabase',
+      label: _syncedLabel(syncState.lastSyncedAt, syncState.source),
+      tooltip: syncState.source == TaskSyncSource.realtime
+          ? '已收到其他分頁或裝置的最新資料'
+          : '資料已同步到 Supabase',
       icon: Icons.cloud_done_outlined,
       foreground: const Color(0xFF047857),
       background: const Color(0xFFD1FAE5),
@@ -540,7 +591,7 @@ _syncMeta(TaskSyncState syncState) {
     ),
     TaskSyncStatus.failed => (
       label: '同步失敗',
-      tooltip: '同步失敗，請稍後重試',
+      tooltip: syncState.failure?.message ?? '同步失敗，點擊重試',
       icon: Icons.cloud_off_outlined,
       foreground: const Color(0xFFB91C1C),
       background: const Color(0xFFFEE2E2),
@@ -557,12 +608,14 @@ _syncMeta(TaskSyncState syncState) {
   };
 }
 
-String _syncedLabel(DateTime? lastSyncedAt) {
+String _syncedLabel(DateTime? lastSyncedAt, TaskSyncSource? source) {
   if (lastSyncedAt == null) return '已同步';
 
   final hour = lastSyncedAt.hour.toString().padLeft(2, '0');
   final minute = lastSyncedAt.minute.toString().padLeft(2, '0');
-  return '已同步 $hour:$minute';
+  return source == TaskSyncSource.realtime
+      ? '即時更新 $hour:$minute'
+      : '已同步 $hour:$minute';
 }
 
 enum _TaskFilter {
